@@ -28,9 +28,9 @@ IMAGE_DIMS = (HEIGHT, WIDTH, CHANNELS)
 N_CLASSES = 3
 TARGETS = ['bulbasaur','charmander', 'squirtle']#['bulbasaur', 'charmander', 'squirtle', 'pikachu', 'mewtwo']
 
-EPOCHS = 251
-LEARNING_RATE = 1e-3
-BATCH_SIZE = 24
+EPOCHS = 21
+LEARNING_RATE = 1e-1
+BATCH_SIZE = 32
 
 class PokemonDataset(object):
     def __init__(self, path='dataset'):
@@ -51,7 +51,7 @@ class PokemonDataset(object):
         random.shuffle(image_paths)
         print('[LOADED {} IMAGES]'.format(len(image_paths)))
         image_paths = [p for p in image_paths if 'bulbasaur' in p or 'squirtle' in p or 'charmander' in p]
-        image_paths = image_paths[:500]
+        image_paths = image_paths[:1161]
         print("SQUIRTLE COUNT: {}".format(len([p for p in image_paths if 'squirtle' in p])))
         print("BULBASAUR COUNT: {}".format(len([p for p in image_paths if 'bulbasaur' in p])))
         print("CHARMANDER COUNT: {}".format(len([p for p in image_paths if 'charmander' in p])))
@@ -77,30 +77,30 @@ class PokemonDataset(object):
         self.trainX, self.testX, self.trainY, self.testY = train_test_split(self.images,
         	self.labels, test_size=0.2, random_state=42)
 
-        # OTHER TEST DATA
-        self.trainX = self.images
-        self.trainY = self.labels
-        self.test_paths = []
-        self.testX = []
-        self.testY = []
-        for subdir, dirs, files in os.walk('test'):
-            for filename in files:
-                if filename.endswith(".png") or filename.endswith(".jpg"):
-                    self.test_paths.append(os.path.join(subdir, filename))
-        for i in range(2):
-            for path in self.test_paths:
-                #print path
-                label = path.split(os.path.sep)[-1].split("_")[0]
-                label_vec = np.zeros(N_CLASSES)
-                if(label in TARGETS):
-                    label_vec[TARGETS.index(label)] = 1
-                    print label_vec
-                    self.testY.append(label_vec)
-                    img = io.imread(path)
-                    img_resized = transform.resize(img, IMAGE_DIMS)
-                    self.testX.append(img_resized)
-        self.testX = np.array(self.testX, dtype="float") / 255.0
-        self.testY = np.array(self.testY)
+        # # OTHER TEST DATA
+        # self.trainX = self.images
+        # self.trainY = self.labels
+        # self.test_paths = []
+        # self.testX = []
+        # self.testY = []
+        # for subdir, dirs, files in os.walk('test'):
+        #     for filename in files:
+        #         if filename.endswith(".png") or filename.endswith(".jpg"):
+        #             self.test_paths.append(os.path.join(subdir, filename))
+        # for i in range(2):
+        #     for path in self.test_paths:
+        #         #print path
+        #         label = path.split(os.path.sep)[-1].split("_")[0]
+        #         label_vec = np.zeros(N_CLASSES)
+        #         if(label in TARGETS):
+        #             label_vec[TARGETS.index(label)] = 1
+        #             print label_vec
+        #             self.testY.append(label_vec)
+        #             img = io.imread(path)
+        #             img_resized = transform.resize(img, IMAGE_DIMS)
+        #             self.testX.append(img_resized)
+        # self.testX = np.array(self.testX, dtype="float") / 255.0
+        # self.testY = np.array(self.testY)
 
         print("\nTEST DIST:")
         print("SQUIRTLE COUNT: {}".format(len([p for v in self.testY if 'squirtle' in TARGETS[np.argmax(v)]])))
@@ -153,6 +153,12 @@ class PokemonDataset(object):
     def test_size(self):
         return len(self.testX)
 
+    def shuffle_train_data():
+        rng_state = np.random.get_state()
+        np.random.shuffle(self.trainX)
+        np.random.set_state(rng_state)
+        np.random.shuffle(self.trainY)
+
 def conv2d(x, W):
  return tf.nn.conv2d(x, W, strides=[1,1,1,1], padding='SAME')
 
@@ -160,6 +166,7 @@ def conv2d(x, W):
 x = tf.placeholder("float", [None, HEIGHT, WIDTH, CHANNELS])
 y_ = tf.placeholder("float", [None, N_CLASSES])
 keep_prob = tf.placeholder(tf.float32)
+is_train = tf.placeholder(tf.bool, name="is_train");
 
 # The first weight tensor has a shape of [5, 5, 1, 32] because our filter is of size
 # 5 x 5 (pretty standard). We only have one channel for grayscale and it's a 2D
@@ -199,40 +206,46 @@ print(h_conv1)
 
 # Apply ReLU to image and pool (1st Pooling layer)
 h_conv1 = tf.nn.relu(h_conv1)
-h_pool1 = tf.layers.max_pooling2d(h_conv1, (3,3),3)
+h_conv1_norm = tf.contrib.layers.batch_norm(h_conv1, is_training=is_train, center=True, scale=True)
+h_pool1 = tf.layers.max_pooling2d(h_conv1_norm, (3,3),3)
 
 # Add dropout
-h_pool1_drop = h_pool1#tf.nn.dropout(h_pool1, 0.1)
+h_pool1_drop = tf.nn.dropout(h_pool1, 0.25)
 print(h_pool1_drop)
 
 # Apply convolution and relu to image (2nd conv layer and 3rd conv layer):
 # (CONV => RELU) * 2 => POOL
 h_conv2 = tf.nn.relu(conv2d(h_pool1_drop, weights['w2']) + biases['b2'])
+h_conv2_norm = tf.contrib.layers.batch_norm(h_conv2, is_training=is_train, center=True, scale=True)
 print(h_conv2)
-h_conv3 = tf.nn.relu(conv2d(h_conv2, weights['w3']) + biases['b3'])
+h_conv3 = tf.nn.relu(conv2d(h_conv2_norm, weights['w3']) + biases['b3'])
+h_conv3_norm = tf.contrib.layers.batch_norm(h_conv3, is_training=is_train, center=True, scale=True)
 print(h_conv3)
-h_pool3 = tf.layers.max_pooling2d(h_conv3, (2,2),2)
+h_pool3 = tf.layers.max_pooling2d(h_conv3_norm, (2,2),2)
 print(h_pool3)
 
 # Add dropout
-h_pool3_drop = h_pool3#tf.nn.dropout(h_pool3, 0.1)
+h_pool3_drop = tf.nn.dropout(h_pool3, 0.25)
 
 # another set of   (CONV => RELU) * 2 => POOL
 h_conv4 = tf.nn.relu(conv2d(h_pool3_drop, weights['w4']) + biases['b4'])
+h_conv4_norm = tf.contrib.layers.batch_norm(h_conv4, is_training=is_train, center=True, scale=True)
 print(h_conv4)
-h_conv5 = tf.nn.relu(conv2d(h_conv4, weights['w5']) + biases['b5'])
+h_conv5 = tf.nn.relu(conv2d(h_conv4_norm, weights['w5']) + biases['b5'])
+h_conv5_norm = tf.contrib.layers.batch_norm(h_conv5, is_training=is_train, center=True, scale=True)
 print(h_conv5)
 h_pool6 = tf.layers.max_pooling2d(h_conv5, (2,2),2)
 print(h_pool6)
 
 # Add dropout
-h_pool6_drop = h_pool6#tf.nn.dropout(h_pool6, 0.1)
+h_pool6_drop = tf.nn.dropout(h_pool6, 0.25)
 
 # Fully connected layer
 print(h_pool6_drop)
 h_pool7_flat = tf.reshape(h_pool6_drop, [-1, 8*8*128]) # flatten
 h_fc1 = tf.nn.relu(tf.matmul(h_pool7_flat, weights['w6']) + biases['b6']) # apply weights
-h_fc1_drop = h_fc1#tf.nn.dropout(h_fc1, 0.1)
+h_fc1_norm = tf.contrib.layers.batch_norm(h_fc1, is_training=is_train, center=True, scale=True)
+h_fc1_drop = tf.nn.dropout(h_fc1_norm, 0.5)
 
 # Final, softmax layer
 pred = tf.matmul(h_fc1_drop, weights['w7']) + biases['b7']
@@ -241,7 +254,9 @@ pred_probs = tf.nn.softmax(pred)
 cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y_))
 
 #cost = tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(pred_probs), reduction_indices=[1])) # cross-entropy
-optimizer = tf.train.AdamOptimizer(LEARNING_RATE).minimize(cost)
+update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+with tf.control_dependencies(update_ops):
+    optimizer = tf.train.AdamOptimizer(LEARNING_RATE).minimize(cost)
 correct_prediction = tf.equal(tf.argmax(pred_probs,1), tf.argmax(y_,1))
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
@@ -259,18 +274,18 @@ with tf.Session() as sess:
                 batch_x, batch_y = ds.next_batch_train(BATCH_SIZE)
                 #print(sess.run(pred_probs, feed_dict={x: batch_x, y_: batch_y}))
                 #print(sess.run(batch_y, feed_dict={x: batch_x, y_: batch_y}))
-                c = sess.run(cost, feed_dict={x: batch_x, y_: batch_y})
-                sess.run(optimizer, feed_dict={x: batch_x, y_: batch_y})
+                c = sess.run(cost, feed_dict={x: batch_x, y_: batch_y, is_train:True})
+                sess.run(optimizer, feed_dict={x: batch_x, y_: batch_y, is_train:True})
                 total_cost += c
             avg_cost = total_cost/num_batches
-            print "Epoch:", (epoch+1), "cost =", "{:.5f}".format(avg_cost)
+            print "Epoch:", (epoch+1), "cost =", "{:.3f}".format(avg_cost)
             if(epoch % 5 == 0):
-                # batch_x, batch_y = ds.next_batch_test(BATCH_SIZE)
-                # acc = sess.run(accuracy, feed_dict={x: batch_x, y_: batch_y})
-                # print "Test Accuracy: ", "{:.5f}".format(acc)
-                batch_x, batch_y = ds.next_batch_train(BATCH_SIZE)
-                acc = sess.run(accuracy, feed_dict={x: batch_x, y_: batch_y})
-                print "Train Accuracy: ", "{:.5f}".format(acc)
+                batch_x, batch_y = ds.next_batch_test(BATCH_SIZE)
+                acc = sess.run(accuracy, feed_dict={x: batch_x, y_: batch_y, is_train:False})
+                print "Test Accuracy: ", "{:.3f}".format(acc)
+                # batch_x, batch_y = ds.next_batch_train(BATCH_SIZE)
+                # acc = sess.run(accuracy, feed_dict={x: batch_x, y_: batch_y, is_train:False})
+                # print "Train Accuracy: ", "{:.5f}".format(acc)
         print "\nTraining complete!"
 
         # Save checkpoint
@@ -300,6 +315,7 @@ with tf.Session() as sess:
                 batch_x, batch_y = ds.next_batch_test(BATCH_SIZE)
                 acc = sess.run(accuracy, feed_dict={x: batch_x, y_: batch_y})
                 print "Test Accuracy: ", "{:.5f}".format(acc)
+            ds.shuffle_train_data()
         print "\nTraining complete!"
 
         save_path = saver.save(sess, "Serial/dex-model2")
@@ -314,10 +330,10 @@ with tf.Session() as sess:
         images = np.array(images, dtype="float") / 255.0
 
         # Restore model weights from previously saved model
-        model_path = "Serial/dex-model"
+        model_path = "Serial/DexCNN.ckpt"
         saver.restore(sess, model_path)
         print("Model restored from file: %s" % model_path)
-        y_pred = sess.run(pred_probs, feed_dict={x: images})
+        y_pred = sess.run(pred_probs, feed_dict={x: images, is_train:False})
         prediction = tf.squeeze(y_pred) # convert prediction to single vector as in [vocab_size] instead of [1 x vocab_size]
         print(sess.run(prediction))
         predicted_idx = sess.run(tf.argmax(prediction))
